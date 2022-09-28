@@ -744,12 +744,12 @@ class GameScene extends Phaser.Scene {
 					var circle = this.add.circle(0, 0, 10, 0xFF0000);
 					this.cameras.main.ignore(circle);
 					circle.setDepth(98);
-					this.miniMap.people.push(
-						{
-							id: player.id,
-							circle: circle
-						}
-					);
+					// this.miniMap.people.push(
+					// 	{
+					// 		id: player.id,
+					// 		circle: circle
+					// 	}
+					// );
 
 					//check if player joined 5 seconds ago
 					if (Date.now() - player.joinTime < 5000) {
@@ -771,13 +771,27 @@ class GameScene extends Phaser.Scene {
 
 
 				};
-				this.removePlayer = (id) => {
+				this.removePlayer = (id, range=false) => {
 					try {
 						var enemy = this.enemies.find(enemyPlayer => enemyPlayer.id == id);
         
-
+						console.log(enemy);
 
 						//fade out the enemy using tweens
+						if(!enemy) return;
+						if(range) {
+							enemy.player.destroy();
+							this.enemies.splice(this.enemies.findIndex(enemy => enemy.id == id), 1);
+							enemy.bar.destroy();
+							enemy.nameTag.destroy();
+							enemy.sword.destroy();
+							// var miniMapPlayer = this.miniMap.people.find(x => x.id === id);
+							// if(miniMapPlayer) {
+							// miniMapPlayer.circle.destroy();
+							// this.miniMap.people = this.miniMap.people.filter(p => p.id != id);
+							// }
+						} else {
+
 						var fadeOut = this.tweens.add({
 							targets: [enemy.player, enemy.nameTag, enemy.bar.bar, enemy.sword],
 							alpha: 0,
@@ -789,13 +803,16 @@ class GameScene extends Phaser.Scene {
 								enemy.bar.destroy();
 								enemy.nameTag.destroy();
 								enemy.sword.destroy();
-                if(!this.spectating) {
-								var miniMapPlayer = this.miniMap.people.find(x => x.id === id);
-								miniMapPlayer.circle.destroy();
-								this.miniMap.people = this.miniMap.people.filter(p => p.id != id);
-                }
+                // if(!this.spectating) {
+								// var miniMapPlayer = this.miniMap.people.find(x => x.id === id);
+								// if(miniMapPlayer) {
+								// miniMapPlayer.circle.destroy();
+								// this.miniMap.people = this.miniMap.people.filter(p => p.id != id);
+								// }
+                // }
 							}
 						});
+					}
 								
         
 					} catch (e) {
@@ -820,6 +837,53 @@ class GameScene extends Phaser.Scene {
 						this.ready = true;
            
 					}
+				});
+				this.socket.on("outOfRange", (playerIds) => {
+					playerIds.forEach(id => this.removePlayer(id, true));
+				});
+				this.all = {
+					lastUpdate: 0,
+					players: []
+				};
+				this.socket.on("all", (players) => {
+					this.all.players = players.filter((p) => p.id != this.socket.id);
+					this.all.lastUpdate = Date.now();
+					players.forEach(player => {
+						if(!this.spectating && player.id != this.socket.id) {
+						if(this.miniMap.people.find(x => x.id === player.id)) {
+							
+							var miniMapPlayer = this.miniMap.people.find(x => x.id === player.id);
+            
+
+
+
+
+							if(this.enemies.find(x => x.id === player.id) || (miniMapPlayer.circle.x == 0 && miniMapPlayer.circle.y == 0) ) {
+								miniMapPlayer.circle.x = (this.miniGraphics.x + ((player.pos.x / (map/2)) * this.miniMap.scaleFactor))+this.miniMap.scaleFactor;
+								miniMapPlayer.circle.y = (this.miniGraphics.y+ ((player.pos.y / (map/2)) * this.miniMap.scaleFactor)) + this.miniMap.scaleFactor; 
+							} else {
+							this.tweens.add({
+								targets: miniMapPlayer.circle,
+								x: (this.miniGraphics.x + ((player.pos.x / (map/2)) * this.miniMap.scaleFactor))+this.miniMap.scaleFactor,
+								y: (this.miniGraphics.y+ ((player.pos.y / (map/2)) * this.miniMap.scaleFactor)) + this.miniMap.scaleFactor,
+								duration: 500,
+								ease: "Sine2"
+							});
+						}
+						
+
+							var bruh = map / 10000;
+		
+							miniMapPlayer.circle.radius = player.scale * (convert(1280, 15, this.canvas.width)/bruh);
+
+						} else {
+						this.miniMap.people.push({
+							id: player.id,
+							circle: this.add.circle(0, 0, 10, 0xFF0000)
+						});
+					}
+				}
+					});
 				});
 				this.socket.on("me", (player) => {
 					if(this.loadrect.visible) this.loadrect.destroy();
@@ -997,7 +1061,12 @@ class GameScene extends Phaser.Scene {
 					try {
                
 						var enemy = this.enemies.find(enemyPlayer => enemyPlayer.id == player.id);
-						if(!enemy) return;
+						if(!enemy) {
+							addPlayer(player);
+							enemy = this.enemies.find(enemyPlayer => enemyPlayer.id == player.id);
+						}
+
+						
 
 						enemy.lastTick = Date.now();
 
@@ -1033,7 +1102,6 @@ class GameScene extends Phaser.Scene {
 						}
 						//minimap
 						if(this.spectating) return;
-						var miniMapPlayer = this.miniMap.people.find(x => x.id === player.id);
 
 
 						if(player.abilityActive && this.sys.game.loop.actualFps > 5) {
@@ -1057,12 +1125,19 @@ class GameScene extends Phaser.Scene {
 						}
             
         
+						if(this.miniMap.people.find(x => x.id === player.id)) {
+							var miniMapPlayer = this.miniMap.people.find(x => x.id === player.id);
+							miniMapPlayer.circle.x = (this.miniGraphics.x + ((player.pos.x / (map/2)) * this.miniMap.scaleFactor))+this.miniMap.scaleFactor;
+							miniMapPlayer.circle.y = (this.miniGraphics.y+ ((player.pos.y / (map/2)) * this.miniMap.scaleFactor)) + this.miniMap.scaleFactor;
+							var bruh = map / 10000;
+							miniMapPlayer.circle.radius = player.scale * (convert(1280, 15, this.canvas.width)/bruh);
+						}
 
-						miniMapPlayer.circle.x = (this.miniGraphics.x + ((player.pos.x / (map/2)) * this.miniMap.scaleFactor))+this.miniMap.scaleFactor;
-						miniMapPlayer.circle.y = (this.miniGraphics.y+ ((player.pos.y / (map/2)) * this.miniMap.scaleFactor)) + this.miniMap.scaleFactor;
-						var bruh = map / 10000;
+						// miniMapPlayer.circle.x = (this.miniGraphics.x + ((player.pos.x / (map/2)) * this.miniMap.scaleFactor))+this.miniMap.scaleFactor;
+						// miniMapPlayer.circle.y = (this.miniGraphics.y+ ((player.pos.y / (map/2)) * this.miniMap.scaleFactor)) + this.miniMap.scaleFactor;
+						// var bruh = map / 10000;
 
-						miniMapPlayer.circle.radius = player.scale * (convert(1280, 15, this.canvas.width)/bruh);
+						// miniMapPlayer.circle.radius = player.scale * (convert(1280, 15, this.canvas.width)/bruh);
 
 		
 
@@ -1138,6 +1213,8 @@ class GameScene extends Phaser.Scene {
 				this.socket.on("playerLeave", this.removePlayer);
 				this.socket.on("playerDied", (id, data) => {
 				//check if killed by me
+
+				this.miniMap.people.find(person => person.id == id)?.circle?.destroy();
 
 				if(this.myObj && this.myObj.id === data.killedBy.id) {
 					var enemy = this.enemies.find(enemyPlayer => enemyPlayer.id == id);
@@ -1768,7 +1845,7 @@ try {
 		//leaderboard
 		if(!this.myObj) return;
         
-		var enemies = this.enemies.filter(a=>a.hasOwnProperty("playerObj") && a.playerObj);
+		var enemies = this.all.players.map((p) => {return {playerObj: p};});
 
 		enemies.push({playerObj: this.myObj});
 		try {
@@ -1851,7 +1928,8 @@ try {
 		//playercount
 		
 		try {
-		if(!this.spectating)	this.playerCount.setText("Players: " + (Object.keys(this.enemies).length + 1).toString() + (this.canvas.height<550 ? "" : "\nFPS: " + Math.round(this.sys.game.loop.actualFps)+"\nTPS: "+this.tps+"\nPing: "+this.ping+" ms"));
+			// add one because count myself
+		if(!this.spectating)	this.playerCount.setText("Players: " + (this.all.players.length+1).toString() + (this.canvas.height<550 ? "" : "\nFPS: " + Math.round(this.sys.game.loop.actualFps)+"\nTPS: "+this.tps+"\nPing: "+this.ping+" ms"));
 		} catch(e) {
 			console.log(e);
 		}

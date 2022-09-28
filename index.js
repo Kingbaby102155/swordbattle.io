@@ -21,8 +21,8 @@ var process = require("process");
 
 var scan = require("./utils/badcheck");
 
-// const Filtery = require("purgomalum-swear-filter");
-// const filtery = new Filtery();
+const Filtery = require("purgomalum-swear-filter");
+const filtery = new Filtery();
 
 var usewebhook = false;
 if(process.env.hasOwnProperty("WEBHOOK_URL")) usewebhook = true;
@@ -381,11 +381,11 @@ app.post("/api/changename", async (req,res) => {
 		return;
 	}
 
-  // var containsProfanity2 = await filtery.containsProfanity(newUsername);
-  // if(containsProfanity2) {
-  //   res.status(400).send({error: "Username contains a bad word!\nIf this is a mistake, please contact an admin."});
-  //   return;
-  // }
+  var containsProfanity2 = await filtery.containsProfanity(newUsername);
+  if(containsProfanity2) {
+    res.status(400).send({error: "Username contains a bad word!\nIf this is a mistake, please contact an admin."});
+    return;
+  }
 
   var containsProfanity3 = scan(newUsername).contains;
   if(containsProfanity3) {
@@ -462,11 +462,11 @@ app.post("/api/signup",checkifMissingFields, async (req, res) => {
 		return;
 	}
 
-  // var containsProfanity2 = await filtery.containsProfanity(username);
-  // if(containsProfanity2) {
-  //   res.send({error: "Username contains a bad word!\nIf this is a mistake, please contact an admin."});
-  //   return;
-  // }
+  var containsProfanity2 = await filtery.containsProfanity(username);
+  if(containsProfanity2) {
+    res.send({error: "Username contains a bad word!\nIf this is a mistake, please contact an admin."});
+    return;
+  }
 
   var containsProfanity3 = scan(username).contains;
   if(containsProfanity3) {
@@ -766,6 +766,8 @@ var maxCoins = 2000;
 var maxChests = 20;
 var maxAiPlayers = 15;
 var maxPlayers = 50;
+var disconnectLogs = [];
+
 
 io.on("connection", async (socket) => {
   socket.joinTime = Date.now();
@@ -790,12 +792,12 @@ io.on("connection", async (socket) => {
         } catch (e) {
           name = r.substring(0, 16);
         }
-        // try {
-        //   name = await filtery.clean(name);
-        //   console.log("filtery", name);
-        // } catch (e) {
-        //   console.log(e);
-        // }
+        try {
+          name = await filtery.clean(name);
+          console.log("filtery", name);
+        } catch (e) {
+          console.log(e);
+        }
         if(scan(name).contains > 0) {
           name = "*".repeat(name.length);
         }
@@ -834,14 +836,14 @@ io.on("connection", async (socket) => {
 				
 				PlayerList.setPlayer(socket.id, thePlayer);
 				console.log("player joined -> " + socket.id);
-				socket.broadcast.emit("new", thePlayer);
+				socket.broadcast.emit("new", thePlayer.getSendObj());
 
 				var allPlayers = Object.values(PlayerList.players);
 				allPlayers = allPlayers.filter((player) => player.id != socket.id);
 
 				if (allPlayers && allPlayers.length > 0) socket.emit("players", allPlayers);
-				//TODO: Make coins emit only within range
-				socket.emit("coins", coins.filter((coin) => coin.inRange(thePlayer)));
+
+        socket.emit("coins", coins.filter((coin) => coin.inRange(thePlayer)));
 				socket.emit("chests", chests);
 
 				socket.joined = true;
@@ -994,7 +996,7 @@ io.on("connection", async (socket) => {
 			PlayerList.setPlayer(socket.id, p);
 			
 			
-  // msg = await filtery.clean(msg);
+  msg = await filtery.clean(msg);
   var containsProfanity3 = scan(msg).contains;
   if(containsProfanity3) {
 	  msg = "*".repeat(msg.length);
@@ -1009,10 +1011,18 @@ io.on("connection", async (socket) => {
 	function clamp(num, min, max) {
 		return num <= min ? min : num >= max ? max : num;
 	}
-	socket.on("disconnect", () => {
+
+
+	socket.on("disconnect", (reason) => {
 		if(serverState == "exiting") return;
 		if (!PlayerList.has(socket.id)) return;
 		var thePlayer = PlayerList.getPlayer(socket.id);
+   if(thePlayer.verified) {
+     console.log(thePlayer.name+" Disconnected while middle of game: " + reason);
+      disconnectLogs.push(thePlayer.name+" - " + reason+" - "+Date.now());
+      if(disconnectLogs.length > 500) disconnectLogs.shift();
+   }
+
 
               //drop their coins
               var drop = [];
@@ -1053,6 +1063,10 @@ var lastChestSend = Date.now();
 var lastCoinSend = Date.now();
 var tps = 0;
 var actps = 0;
+
+app.get("/disclogs", (req,res) => {
+  res.send(disconnectLogs.join("<br>"));
+});
 app.get("/api/serverinfo", (req, res) => {
   var playerCount = Object.values(PlayerList.players).length;
   var lag = actps > 15 ? "No lag" : actps > 6 ? "Moderate lag" : "Extreme lag";
@@ -1065,7 +1079,8 @@ app.get("/api/serverinfo", (req, res) => {
       .length,
   });
 });
-
+var lastSendAll = 0;
+var allSendInt = 500;
 setInterval(async () => {
 	//const used = process.memoryUsage().heapUsed / 1024 / 1024;
 //console.log(`The script uses approximately ${Math.round(used * 100) / 100} MB`);
@@ -1147,7 +1162,7 @@ setInterval(async () => {
 		var theAi = new AiPlayer(id);
 		console.log("AI Player Joined -> "+theAi.name);
 		PlayerList.setPlayer(id, theAi);
-		io.sockets.emit("new", theAi);
+		io.sockets.emit("new", theAi.getSendObj());
 	}
 	//emit tps to clients
 	if (Date.now() - secondStart >= 1000) {
@@ -1176,11 +1191,26 @@ setInterval(async () => {
 			b.disconnect();
 		}
 	});
+  const shouldSendAll = Date.now() - lastSendAll >= allSendInt;
+  if(shouldSendAll) {
+    var allArr = [];
+  }
 
 	playersarray.forEach((player) => {
     
 		if(player) {
       player.updateValues();
+      if(shouldSendAll) {
+        allArr.push({
+          id: player.id,
+          name: player.name,
+          pos: player.pos,
+          scale: player.scale, 
+          coins: player.coins,
+          ranking: player.ranking,
+          verified: player.verified,
+        });
+      }
 			//   player.moveWithMouse(players)
 			if(player.ai) {
 				[coins,chests] = player.tick(coins, io, levels, chests);
@@ -1198,20 +1228,28 @@ setInterval(async () => {
 
 			//emit player data to all clients
 			sockets.forEach((socket) => {
-				if(!player.getSendObj()) console.log("gg");
-				if (player.id != socket.id) socket.emit("player", player.getSendObj());
-				else {
+        var outOfRange = [];
+				if(!player.getSendObj()) console.log("couldnt get send obj");
+				if ((player.id != socket.id) && (PlayerList.getPlayer(socket.id) ? player.inRange(PlayerList.getPlayer(socket.id)) : true)) socket.emit("player", player.getSendObj());
+				else if(player.id == socket.id) {
 					socket.emit("me", player);
 				if(Date.now() - lastCoinSend >= 1000) {
 					socket.emit("coins", coins.filter((coin) => coin.inRange(player)));
 				}
-				}
+				} else {
+          outOfRange.push(player.id);
+        }
+        if(outOfRange.length > 0) socket.emit("outOfRange", outOfRange);
 			});
 		}
 	});
 	if(Date.now() - lastCoinSend >= 1000) {
 		lastCoinSend = Date.now();
 	}
+  if(shouldSendAll) {
+    io.sockets.emit("all", allArr);
+    lastSendAll = Date.now();
+  }
 	tps += 1;
 }, 1000 / 30);
 

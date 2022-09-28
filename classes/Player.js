@@ -523,6 +523,11 @@ return false;
   return false;
   }
 
+  inRange(player) {
+    var show = 1500+((300*player.scale)*3);
+    var dist = Math.sqrt(Math.pow(this.pos.x - player.pos.x, 2) + Math.pow(this.pos.y - player.pos.y, 2));
+      return dist <= show;
+  }
 
   getSendObj() {
     return {swordInHand: this.swordInHand, skin: this.skin, abilityActive: this.abilityActive, evolution: this.evolution,verified: this.verified, damageCooldown: this.damageCooldown, joinTime: this.joinTime, skin: this.skin, id: this.id, name:this.name, health:this.health, coins: this.coins,pos:this.pos, speed:this.speed,scale:this.scale,maxHealth: this.maxHealth, mouseDown: this.mouseDown, mousePos: this.mousePos, ranking: this.ranking};
